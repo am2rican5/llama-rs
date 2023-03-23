@@ -83,6 +83,9 @@ pub struct InferenceSession {
 
     /// The logits that were last predicted by the network. Zeroed out otherwise.
     last_logits: Vec<f32>,
+
+    // The hidden states that were last predicted by the network. Zeroed out otherwise.
+    last_hidden_states: Vec<f32>,
 }
 
 /// The parameters that drive text generation.
@@ -105,6 +108,34 @@ impl Default for InferenceParameters {
             repeat_penalty: 1.30,
             temp: 0.80,
         }
+    }
+}
+
+pub struct EmbeddingStats {
+    pub base: InferenceStats,
+    pub embedding_vector: Vec<f32>,
+}
+
+impl Default for EmbeddingStats {
+    fn default() -> Self {
+        Self {
+            base: InferenceStats::default(),
+            embedding_vector: Vec::new(),
+        }
+    }
+}
+
+impl Display for EmbeddingStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f, 
+            "{}\n{}", 
+            self.base, 
+            self.embedding_vector.iter()
+                .map(|&x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
     }
 }
 
@@ -179,6 +210,8 @@ pub struct InferenceSnapshot {
     pub last_n_tokens: VecDeque<TokenId>,
     /// The vector of logits that was produced after the last inference
     pub last_logits: Vec<f32>,
+
+    pub last_hidden_states: Vec<f32>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -807,6 +840,7 @@ impl Model {
             mem_per_token: 0,
             last_n_tokens: VecDeque::from(vec![0; last_n_size]),
             last_logits: vec![0.0; n_vocab as usize],
+            last_hidden_states: vec![0.0; n_embd as usize],
         }
     }
 
@@ -1096,6 +1130,14 @@ impl Model {
 
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
+
+            assert_eq!(session.last_hidden_states.len(), n_embd as usize);
+            unsafe {
+                input_layer.read_data(
+                    n_embd as usize * (n - 1) * std::mem::size_of::<f32>(),
+                    bytemuck::cast_slice_mut(&mut session.last_hidden_states),
+                )
+            };
         }
 
         // lm_head
@@ -1192,6 +1234,7 @@ impl Model {
         session.n_past = snapshot.npast;
         session.last_n_tokens = snapshot.last_n_tokens;
         session.last_logits = snapshot.last_logits;
+        session.last_hidden_states = snapshot.last_hidden_states;
 
         Ok(session)
     }
@@ -1256,6 +1299,34 @@ impl InferenceSession {
         } else {
             Ok(OutputToken::Token(&vocab.mapping[next_token as usize]))
         }
+    }
+
+    pub fn embed_prompt(
+        &mut self,
+        model: &Model,
+        vocab: &Vocabulary,
+        params: &InferenceParameters,
+        prompt: &str,
+    ) -> Result<EmbeddingStats, InferenceError> {
+        let mut stats = EmbeddingStats::default();
+
+        let start_at = time::SystemTime::now();
+
+        let prompt_tokens = model.tokenize(vocab, prompt, true);
+
+        if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
+            return Err(InferenceError::ContextFull);
+        }
+
+        for batch in prompt_tokens.chunks(8) {
+            model.evaluate(self, params.n_threads, batch);
+        }
+
+        stats.embedding_vector = self.last_hidden_states.clone();
+
+        stats.base.feed_prompt_duration = start_at.elapsed().unwrap();
+
+        Ok(stats)
     }
 
     // todo: see if we can reduce the arguments here somehow - consolidate model and vocab maybe?
