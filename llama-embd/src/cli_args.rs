@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Where to load the model path from
-    #[arg(long, short = 'm')]
+    #[arg(long, short = 'm', default_value = "Z:\\Workspace\\llama.cpp\\models\\7B\\ggml-model-q4_0.bin")]
     pub model_path: String,
 
     /// The prompt to feed the generator
@@ -17,8 +17,8 @@ pub struct Args {
     pub prompt_file: Option<String>,
 
     /// Output file to write the generated text to. If not set, the output will be printed to stdout.
-    #[arg(long, short = 'o', default_value = None)]
-    pub output_file: Option<String>,
+    #[arg(long, short = 'o', default_value = "output.csv")]
+    pub output_file: String,
 
     /// Sets the number of threads to use
     #[arg(long, short = 't', default_value_t = num_cpus::get_physical())]

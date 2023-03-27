@@ -113,6 +113,7 @@ impl Default for InferenceParameters {
 
 pub struct EmbeddingStats {
     pub base: InferenceStats,
+    pub original_token_length: usize,
     pub embedding_vector: Vec<f32>,
 }
 
@@ -120,6 +121,7 @@ impl Default for EmbeddingStats {
     fn default() -> Self {
         Self {
             base: InferenceStats::default(),
+            original_token_length: 0,
             embedding_vector: Vec::new(),
         }
     }
@@ -129,13 +131,19 @@ impl Display for EmbeddingStats {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f, 
-            "{}\n{}", 
-            self.base, 
-            self.embedding_vector.iter()
-                .map(|&x| x.to_string())
-                .collect::<Vec<_>>()
-                .join(",")
+            "{}\noriginal_token_length: {}", 
+            self.base,
+            self.original_token_length,
         )
+    }
+}
+
+impl EmbeddingStats {
+    pub fn vector_to_string(&self) -> String {
+        self.embedding_vector.iter()
+            .map(|&x| format!("{:.18e}", x))
+            .collect::<Vec<_>>()
+            .join(",")
     }
 }
 
@@ -1131,12 +1139,16 @@ impl Model {
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
+            // run the computation
+            gf.build_forward_expand(&input_layer);
+            ctx0.graph_compute(&mut gf);
+
             assert_eq!(session.last_hidden_states.len(), n_embd as usize);
             unsafe {
                 input_layer.read_data(
                     n_embd as usize * (n - 1) * std::mem::size_of::<f32>(),
                     bytemuck::cast_slice_mut(&mut session.last_hidden_states),
-                )
+                );
             };
         }
 
@@ -1312,13 +1324,17 @@ impl InferenceSession {
 
         let start_at = time::SystemTime::now();
 
-        let prompt_tokens = model.tokenize(vocab, prompt, true);
+        let mut prompt_tokens = model.tokenize(vocab, prompt, true);
+        stats.original_token_length = prompt_tokens.len();
 
         if self.n_past + prompt_tokens.len() >= model.hparams.n_ctx as usize {
-            return Err(InferenceError::ContextFull);
+            prompt_tokens = prompt_tokens
+                .into_iter()
+                .take(model.hparams.n_ctx as usize)
+                .collect();
         }
 
-        for batch in prompt_tokens.chunks(8) {
+        for batch in prompt_tokens.chunks(32) {
             model.evaluate(self, params.n_threads, batch);
         }
 

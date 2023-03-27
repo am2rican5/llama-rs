@@ -3,7 +3,7 @@ members = [
     "ggml-raw",
     "llama-rs",
     "llama-cli",
-    "llama-embd",
+    "llama-embd"
 ]
 
 resolver = "2"
