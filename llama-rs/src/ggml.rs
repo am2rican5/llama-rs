@@ -157,6 +157,11 @@ impl Context {
         self.new_tensor_raw(tensor)
     }
 
+    pub fn op_mean(&self, a: &Tensor) -> Tensor {
+        let tensor = unsafe { ggml_raw::ggml_mean(self.ptr.as_ptr(), a.ptr.as_ptr()) };
+        self.new_tensor_raw(tensor)
+    }
+
     pub fn graph_compute(&self, graph: &mut ComputationGraph) {
         unsafe {
             ggml_raw::ggml_graph_compute(self.ptr.as_ptr(), &mut graph.inner);

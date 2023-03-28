@@ -1139,13 +1139,13 @@ impl Model {
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
-            // run the computation
-            gf.build_forward_expand(&input_layer);
-            ctx0.graph_compute(&mut gf);
-
+            // get embedding layer
             assert_eq!(session.last_hidden_states.len(), n_embd as usize);
+            let embedding_layer = ctx0.op_mean(&input_layer);
+            gf.build_forward_expand(&embedding_layer);
+            ctx0.graph_compute(&mut gf);
             unsafe {
-                input_layer.read_data(
+                embedding_layer.read_data(
                     n_embd as usize * (n - 1) * std::mem::size_of::<f32>(),
                     bytemuck::cast_slice_mut(&mut session.last_hidden_states),
                 );
