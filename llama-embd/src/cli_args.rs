@@ -17,7 +17,7 @@ pub struct Args {
     pub prompt_file: Option<String>,
 
     /// Output file to write the generated text to. If not set, the output will be printed to stdout.
-    #[arg(long, short = 'o', default_value = "output.csv")]
+    #[arg(long, short = 'o', default_value = "test_output.csv")]
     pub output_file: String,
 
     /// Sets the number of threads to use

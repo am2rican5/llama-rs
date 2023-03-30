@@ -1139,16 +1139,19 @@ impl Model {
             // inpL = norm*inpL
             input_layer = ctx0.op_mul(&ctx0.op_repeat(&self.norm, &input_layer), &input_layer);
 
-            // get embedding layer
-            assert_eq!(session.last_hidden_states.len(), n_embd as usize);
-            let embedding_layer = ctx0.op_mean(&input_layer);
+            // get embedding
+            let embedding_layer = ctx0.op_view_1d(
+                &input_layer,
+                n_embd, 
+                n_embd as usize * (n - 1) * std::mem::size_of::<f32>()
+            );
+
             gf.build_forward_expand(&embedding_layer);
             ctx0.graph_compute(&mut gf);
+
+            assert_eq!(session.last_hidden_states.len(), n_embd as usize);
             unsafe {
-                embedding_layer.read_data(
-                    n_embd as usize * (n - 1) * std::mem::size_of::<f32>(),
-                    bytemuck::cast_slice_mut(&mut session.last_hidden_states),
-                );
+                embedding_layer.read_data(0, bytemuck::cast_slice_mut(&mut session.last_hidden_states));
             };
         }
 
